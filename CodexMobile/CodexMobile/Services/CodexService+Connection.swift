@@ -147,7 +147,9 @@ extension CodexService {
         finalizeAllStreamingState()
         messagePersistenceDebounceTask?.cancel()
         messagePersistenceDebounceTask = nil
-        messagePersistence.save(messagesByThread)
+        if !suspendAutomaticMacScopedPersistence {
+            persistCurrentMacMessages()
+        }
         assistantCompletionFingerprintByThread.removeAll()
         recentActivityLineByThread.removeAll()
         removeAllThreadTimelineState()
@@ -232,7 +234,7 @@ extension CodexService {
         lastAppliedBridgeOutboundSeq = 0
         shouldForceQRBootstrapOnNextHandshake = false
         trustedReconnectFailureCount = 0
-        if let trustedMac = preferredTrustedMacRecord {
+        if let trustedMac = currentTrustedMacRecord {
             secureConnectionState = .liveSessionUnresolved
             secureMacFingerprint = codexSecureFingerprint(for: trustedMac.macIdentityPublicKey)
         } else {
@@ -265,7 +267,7 @@ extension CodexService {
     }
 
     func forgetTrustedMac(deviceId: String? = nil) {
-        let targetDeviceId = deviceId ?? preferredTrustedMacDeviceId
+        let targetDeviceId = deviceId ?? normalizedCurrentTrustedMacDeviceId
         guard let targetDeviceId else {
             return
         }
@@ -273,9 +275,15 @@ extension CodexService {
         trustedMacRegistry.records.removeValue(forKey: targetDeviceId)
         SecureStore.writeCodable(trustedMacRegistry, for: CodexSecureKeys.trustedMacRegistry)
 
+        if normalizedCurrentTrustedMacDeviceId == targetDeviceId {
+            setCurrentTrustedMacDeviceId(nil)
+        }
         if normalizedLastTrustedMacDeviceId == targetDeviceId {
             SecureStore.deleteValue(for: CodexSecureKeys.lastTrustedMacDeviceId)
             lastTrustedMacDeviceId = nil
+        }
+        if normalizedPreviousTrustedMacDeviceId == targetDeviceId {
+            clearPreviousTrustedMacDeviceId()
         }
 
         if normalizedRelayMacDeviceId == targetDeviceId {
@@ -294,7 +302,7 @@ extension CodexService {
             return
         }
 
-        if preferredTrustedMacDeviceId != nil {
+        if normalizedCurrentTrustedMacDeviceId != nil {
             forgetTrustedMac()
             return
         }
@@ -638,7 +646,8 @@ extension CodexService {
     var hasTrustedReconnectContext: Bool {
         guard hasSavedRelaySession,
               !shouldForceQRBootstrapOnNextHandshake,
-              let relayMacDeviceId = normalizedRelayMacDeviceId else {
+              let relayMacDeviceId = normalizedRelayMacDeviceId,
+              normalizedCurrentTrustedMacDeviceId == nil || normalizedCurrentTrustedMacDeviceId == relayMacDeviceId else {
             return false
         }
 
