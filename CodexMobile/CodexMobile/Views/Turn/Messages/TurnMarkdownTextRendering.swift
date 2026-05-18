@@ -2,11 +2,11 @@
 // Purpose: Renders and formats markdown text used by turn timeline rows.
 // Layer: Turn UI rendering
 // Exports: MarkdownTextView, StreamingAssistantMarkdownTextView, MarkdownTextFormatter
-// Depends on: Foundation, SwiftUI, Textual, TurnMessageCaches, TurnMessageRegexCache
+// Depends on: Foundation, SwiftUI, RemodexTextKit, TurnMessageCaches, TurnMessageRegexCache
 
 import Foundation
+import RemodexTextKit
 import SwiftUI
-import Textual
 
 /// Resets the in-memory AttributedString cache that backs ``MarkdownTextView``.
 /// Kept for explicit memory recovery without forcing cold parses on every thread switch.
@@ -15,7 +15,7 @@ enum MarkdownParseCacheReset {
     static func reset() { CachingMarkdownParser.reset() }
 }
 
-// Wraps the default Textual markdown parser with a bounded AttributedString
+// Wraps the default RemodexTextKit markdown parser with a bounded AttributedString
 // cache so Foundation's markdown parser is not re-run during timeline redraws
 // or when a future lazy container recycles a row on upward scroll.
 @MainActor
@@ -65,13 +65,29 @@ struct MarkdownTextView: View {
         let parser: any MarkupParser = usesCaches
             ? CachingMarkdownParser.shared
             : UncachedMarkdownParser.shared
-        // Keep prose on the app font, but let Textual own markdown/code layout to avoid block sizing regressions.
+        // Keep prose on the app font, but let RemodexTextKit own markdown/code layout to avoid block sizing regressions.
+        // RemodexTextKit intentionally keeps the `.textual` namespace for its SwiftUI modifiers.
         // Force code-block overflow to wrap instead of scroll so horizontal ScrollViews
         // inside the timeline do not compete with the sidebar swipe gesture or let
         // the chat feel like a pannable canvas.
         let baseView = StructuredText(transformed, parser: parser)
             .font(AppFont.body())
-            .textual.structuredTextStyle(.gitHub)
+            .textual.codeBlockStyle(
+                .default(
+                    actionIcons: .init(
+                        copy: .custom {
+                            Image("copy", bundle: .main)
+                                .renderingMode(.template)
+                                .resizable()
+                                .scaledToFit()
+                        },
+                        copied: .custom {
+                            RemodexIcon.image(systemName: "checkmark")
+                        }
+                    )
+                )
+            )
+            .textual.structuredTextStyle(.default)
             .textual.overflowMode(.wrap)
 
         let renderedContent = Group {
@@ -308,7 +324,7 @@ private enum StreamingMarkdownBlockSplitter {
         )
     }
 
-    // Keep the newest chunk intact so Textual can apply native paragraph/list/code spacing
+    // Keep the newest chunk intact so RemodexTextKit can apply native paragraph/list/code spacing
     // while old chunks stop reparsing during long streaming responses.
     private static func shouldSealChunk(in text: String, from start: String.Index, to boundary: String.Index) -> Bool {
         guard boundary < text.endIndex else { return false }

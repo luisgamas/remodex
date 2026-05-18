@@ -10,7 +10,7 @@
 import SwiftUI
 import UIKit
 
-// Keep Textual selection out of the scrolling timeline. This is shared by both
+// Keep RemodexTextKit selection out of the scrolling timeline. This is shared by both
 // plain markdown rows and Mermaid-interleaved markdown segments.
 let enablesInlineMarkdownSelectionInTimeline = false
 
