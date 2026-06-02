@@ -92,10 +92,15 @@ final class RemodexDisplayIslandCoordinator {
 
     private func performSync(codex: CodexService) async {
         let now = Date()
-        reconcileCompletions(codex: codex, now: now)
-        let snapshot = makeSnapshot(codex: codex, now: now)
+        let snapshot = makeReconciledSnapshot(codex: codex, now: now)
         scheduleNextExpirationSyncIfNeeded(codex: codex, snapshot: snapshot, now: now)
         await apply(snapshot: snapshot, now: now)
+    }
+
+    // Reconciles transient run/outcome caches before producing ActivityKit content.
+    func makeReconciledSnapshot(codex: CodexService, now: Date) -> RemodexDisplayIslandSnapshot {
+        reconcileCompletions(codex: codex, now: now)
+        return makeSnapshot(codex: codex, now: now)
     }
 
     private func reconcileCompletions(codex: CodexService, now: Date) {
@@ -125,14 +130,14 @@ final class RemodexDisplayIslandCoordinator {
 
         for threadId in completedIDs {
             let terminalState = codex.latestTurnTerminalState(for: threadId)
-            if terminalState == .failed {
+            switch terminalState {
+            case .completed:
+                rememberCompletion(threadId: threadId, codex: codex, now: now)
+            case .failed:
                 rememberFailure(threadId: threadId, codex: codex, now: now)
+            case .stopped, nil:
                 continue
             }
-            guard terminalState != .stopped else {
-                continue
-            }
-            rememberCompletion(threadId: threadId, codex: codex, now: now)
         }
 
         let visibleTerminalStates = terminalStates.filter { threadId, _ in
